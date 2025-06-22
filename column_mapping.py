@@ -1,0 +1,392 @@
+import pandas as pd
+from fuzzywuzzy import fuzz
+# from thefuzz import fuzz
+import requests
+import json
+import re
+from langchain_openai import ChatOpenAI 
+
+
+
+base_url = "https://api-prod.jll.com/csp/chat-service/api/v1"
+subscription_key = "e3c3d48a04e04f10be62efffd0f972ac"
+model = "GPT_4_O"
+
+# Okta Configuration
+OKTA_TOKEN_URL="https://api-prod.jll.com/okta/token"
+OKTA_GRANT_TYPE="client_credentials"
+OKTA_SCOPE="clientcredential"
+OKTA_AUTHORIZATION='Basic MG9hMjIwNHNkMmlZZDg3RGkwaDg6ZjloR0FvdXF5SVdFSFFtTXRrcWI2Zml3N241dVJyRlJMNUFaV05Ia3Z6S042dC1mUmFiMlRTdkJjTm4xcmdvcA=='
+OKTA_COOKIE='ak_bmsc=133E676041DA23E8A92C90E0BAA8F731~000000000000000000000000000000~YAAQRA80FzppHECWAQAA3n/aQRslJ60Fbs46+6D+8O4vpuhwrbKDSCgDXX3fKFJ2znwiizgxF4IO4L7yXfr5CdZg0MtjcvPv7c0MV+3KZ6qQjJiaJE019VO9+IpwR6k3Rx/iJ9g0ze8jdiCe1agrz7VrVh6YPC607NRiwEFafuhRGsN+C1eclOMrnlYGqypsDhLaF8mjIaTf9U8tu9xt6KfzgRi81KpbvB9WUBzHPkAoyEMsZCD/dxFqC4xKhKmS10qCz5FweewrcUg/r3FU62vgT9whXB6jFEBGY5c0GlHve4yNHztmwSSsiPPXtbJcYFdT3bpIWZp3Al3XBMIRJkEj0joJURo=; JSESSIONID=6E5AE6C7E78FBAD6DA9AB13C6B32E3ED'
+OKTA_CLIENT_ID="your_client_id"
+OKTA_REFRESH_TOKEN="your_refresh_token"
+
+def get_okta_token() -> str:
+    """Get Okta token, refreshing if necessary."""
+    try:
+        url = OKTA_TOKEN_URL
+        payload = f'grant_type={OKTA_GRANT_TYPE}&scope={OKTA_SCOPE}'
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': OKTA_AUTHORIZATION,
+            'Cookie': OKTA_COOKIE
+        }
+
+        response = requests.post(url, headers=headers, data=payload)
+        response.raise_for_status()
+
+        token_data = response.json()
+        OKTA_TOKEN = token_data.get("access_token")
+        return token_data.get("access_token")
+
+    except Exception as e:
+        print(f"Error refreshing Okta token: {str(e)}")
+        raise
+
+# self.token = config.TOKEN
+headers = {
+    "Authorization": get_okta_token(),
+    "Content-Type": "application/json",
+    "Subscription-Key": subscription_key,
+    "Keep-Alive": "timeout=120, max=100"
+}
+
+# --- 1. Define your schemas (Source and Target) ---
+# Each field has a 'name' and a 'description'.
+
+
+
+# df_source = pd.read_excel("C:\\Users\\Dhiraj.Mistry\\Downloads\\Workorder_Target_fields.xlsx", sheet_name='Sheet1')
+
+# source_schema = []
+# for i, row in df_source.iterrows():
+#     data = {}
+#     data['name'] = row['Field_Name']
+#     data['description'] = row['Description']
+#     source_schema.append(data)
+
+
+
+# df_target = pd.read_excel('C:\\Users\\Dhiraj.Mistry\\Downloads\\WorkOrderDashboardAllFields.xlsx', sheet_name='Sheet1')
+# target_schema = []
+# for i, row in df_target.iterrows():
+#     data = {}
+#     data['name'] = row['Field_Name']
+#     data['description'] = row['Description']
+#     # data['tablename'] = row['Databricks_Table']
+#     target_schema.append(data)
+
+
+# --- 2. Function to generate the prompt for the LLM ---
+
+def generate_matching_prompt(source_field, target_fields,df_source,df_target):
+    """
+    Generates a prompt for the LLM to find the best match for a source field
+    from a list of target fields.
+    """
+    target_fields_str = "\n".join([
+        f"- Name: {f['name']}, Description: {f['description']}" for f in target_fields
+    ])
+
+    prompt = f"""
+    You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
+
+    Source Field:
+      Name: {source_field['name']}
+      Description: {source_field['description']}
+
+    Target Fields to Choose From:
+    {target_fields_str}
+
+    Sample DataFrames with 100 rows each:
+    Source DataFrame (df_source):
+    {df_source.head().to_string(index=False)}
+    Target DataFrame (df_target):
+    {df_target.head().to_string(index=False)}
+    Instructions:
+    1. Analyze the source field's name and description.
+    2. Compare it to each target field's name and description.
+    3. Identify the *single best* semantic match.
+    4. Consider the sample data provided in the DataFrames to understand the context.
+    5. If no target field is a good semantic match, state 'No Match'.
+    6. Give low confidence scores for matches that are not very similar or multiple matches.
+
+    Provide your answer in the following JSON format ONLY:
+    {{
+        "source_field_name": "{source_field['name']}",
+        "best_match_target_field_name": "<name_of_best_matching_target_field_or_No_Match>",
+        "confidence_score": <a_float_between_0_and_1_representing_confidence>,
+        "explanation": "<brief_reason_for_the_match_or_no_match>"
+    }}
+    """
+    return prompt
+
+# --- 3. Function to call the LLM and parse the response ---
+
+def get_llm_match(source_field, target_fields,df_source,df_target, model_name="llama3"):
+    """
+    Calls the LLM (Ollama) to get the best match for a source field.
+    """
+    prompt = generate_matching_prompt(source_field, target_fields,df_source,df_target)
+    try:
+        # response = ollama.chat(model=model_name, messages=[{'role': 'user', 'content': prompt}])
+        llm_output = ''
+        try:
+            __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0,
+                    # default_headers={
+                    #     "Subscription-Key": self.subscription_key
+                    # }
+                    default_headers=headers
+                    )
+            
+            res = __plainLLM.invoke(prompt)
+            llm_output = res.content
+        except Exception as e:
+            if "401" in str(e):
+                # Refresh the token
+                headers["Authorization"] = f"Bearer {get_okta_token()}"
+                print("Refreshed access token successfully")
+                __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0.2,
+                    default_headers=headers
+                )
+                res = __plainLLM.invoke(prompt)
+                llm_output = res.content
+        print(f"LLM output for '{source_field['name']}': {llm_output}")
+        # Attempt to parse JSON. LLMs sometimes add extra text, so we'll try to find the JSON block.
+        json_match = re.search(r'\{.*\}', llm_output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            try:
+                parsed_output = json.loads(json_str)
+                return parsed_output
+            except json.JSONDecodeError:
+                print(f"Warning: Could not parse JSON from LLM output: {json_str[:200]}...")
+                return None
+        else:
+            print(f"Warning: No JSON found in LLM output: {llm_output[:200]}...")
+            return None
+    except Exception as e:
+        print(f"Error calling LLM for {source_field['name']}: {e}")
+        return None
+
+# --- 4. Main Matching Logic ---
+
+# if __name__ == "__main__":
+#     print("Starting LLM-based field matching...")
+#     matched_pairs = []
+#     unmatched_source_fields = []
+#     cnt = 0
+#     for s_field in source_schema:
+#         cnt += 1
+#         print(f"\nMatching source field: '{s_field['name']}'")
+#         if cnt == 20:
+#             print("Reached 20 fields, stopping further processing.")
+#             break
+#         match_result = get_llm_match(s_field, target_schema)
+#         print(f"LLM response for '{s_field['name']}': {match_result}")
+#         if match_result:
+#             source_name = match_result.get("source_field_name")
+#             target_name = match_result.get("best_match_target_field_name")
+#             confidence = match_result.get("confidence_score")
+#             explanation = match_result.get("explanation")
+
+#             if target_name and target_name != "No Match":
+#                 matched_pairs.append({
+#                     "source": source_name,
+#                     "target": target_name,
+#                     "confidence": confidence,
+#                     "explanation": explanation
+#                 })
+#                 print(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
+#                 print(f"     Explanation: {explanation}")
+#             else:
+#                 unmatched_source_fields.append({
+#                     "source": source_name,
+#                     "explanation": explanation
+#                 })
+#                 print(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
+#         else:
+#             unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
+#             print(f"  -> Failed to process '{s_field['name']}'")
+
+#     print("\n--- Matching Results ---")
+#     print("\nMatched Pairs:")
+#     if matched_pairs:
+#         for pair in matched_pairs:
+#             print(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
+#             # print(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
+#     else:
+#         print("  No matches found.")
+
+#     print("\nUnmatched Source Fields:")
+#     if unmatched_source_fields:
+#         for field in unmatched_source_fields:
+#             print(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
+#     else:
+#         print("  All source fields matched.")
+
+#     print("\nMatching process complete.")
+#     solver_prompt = f"""We have attempted to match source fields to target fields using an LLM. Here are the results:
+#     Matched Pairs:  {matched_pairs}
+#     Unmatched Source Fields: {unmatched_source_fields}   
+#     Please review these results and provide the insights in a well-defined tabular format.
+#     """
+#     __plainLLMSolver = ChatOpenAI(
+#                     api_key=get_okta_token(),
+#                     base_url=base_url,
+#                     model=model,
+#                     temperature=0.2,
+#                     default_headers=headers
+#                 )
+#     res = __plainLLMSolver.invoke(solver_prompt)
+#     solver_output = res.content
+#     print(f"\nSolver Output: \n{solver_output}")
+
+
+
+
+def fuzzy_match(col1, col2):
+    return fuzz.ratio(col1, col2)
+
+
+
+def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=None,metasrc_df=None,metatgt_df=None):
+    print("match_columns started !!!!!!!")
+    mappings = {}
+    source_schema = []
+    for i, row in metasrc_df.iterrows():
+        data = {}
+        data['name'] = row['column_name']
+        data['description'] = row['description']
+        source_schema.append(data)
+    
+    target_schema = []
+    for i, row in metatgt_df.iterrows():
+        data = {}
+        data['name'] = row['column_name']
+        data['description'] = row['description']
+        target_schema.append(data)
+
+    print("Starting LLM-based field matching...")
+    matched_pairs = []
+    unmatched_source_fields = []
+    cnt = 0
+    for s_field in source_schema:
+        cnt += 1
+        
+        if cnt == 20:
+            print("Reached 20 fields, stopping further processing.")
+            break
+        print(f"\nMatching source field: '{s_field['name']}'")
+        # Only process top 100 rows of the source DataFrame for the prompt
+        source_sample = source_df.head(100)
+        target_sample = outcome_df.head(100)
+        match_result = get_llm_match(s_field, target_schema, source_sample, target_sample)
+        
+        print(f"LLM response for '{s_field['name']}': {match_result}")
+        if match_result:
+            source_name = match_result.get("source_field_name")
+            target_name = match_result.get("best_match_target_field_name")
+            confidence = match_result.get("confidence_score")
+            explanation = match_result.get("explanation")
+
+            if target_name and target_name != "No Match":
+                matched_pairs.append({
+                    "source": source_name,
+                    "target": target_name,
+                    "confidence": confidence,
+                    "explanation": explanation
+                })
+                # print(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
+                # print(f"     Explanation: {explanation}")
+            else:
+                unmatched_source_fields.append({
+                    "source": source_name,
+                    "explanation": explanation
+                })
+                print(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
+        else:
+            unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
+            print(f"  -> Failed to process '{s_field['name']}'")
+
+    print("\n--- Matching Results ---")
+    print("\nMatched Pairs:")
+    if matched_pairs:
+        for pair in matched_pairs:
+            # print(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
+            conf_score = float("{:.2f}".format(pair['confidence']))
+            mappings[pair['source']] = {"Target Column": pair['target'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
+            # print(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
+    else:
+        print("  No matches found.")
+
+    print("\nUnmatched Source Fields:")
+    if unmatched_source_fields:
+        for field in unmatched_source_fields:
+            print(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
+            # conf_score = float("{:.2f}".format(field['confidence']))
+            mappings[field['source']] = {"Target Column": '', "Confidence Score": 0, "Explanation": field['explanation']}
+    else:
+        print("  All source fields matched.")
+
+    print("\nMatching process complete.")
+
+    # def z_get_values(df, col):
+    #     datatype = ""
+    #     desc     = ""
+    #     if df is not None:
+    #         src = df.loc[df['column_name'] == col, 'data_type']
+    #         if len(src) > 0: datatype = src.values[0]
+    #         src = df.loc[df['column_name'] == col, 'description'] 
+    #         if len(src) > 0: desc = src.values[0]
+    #     return (datatype,desc)
+
+
+    # for source_col in source_df.columns:
+    #     best_match = None
+    #     best_score = 0
+    #     #source_dtype = str(source_df[source_col].dtype)
+    #     source_metadata = metadata_df.loc[metadata_df['column_name'] == source_col, 'description'].values[0] if metadata_df is not None else ""
+        
+    #     (source_dtype,source_desc) = z_get_values(metasrc_df, source_col)
+        
+    #     for outcome_col in outcome_df.columns:
+    #         #outcome_dtype = str(outcome_df[outcome_col].dtype)
+    #         (outcome_dtype,outcome_desc) = z_get_values(metatgt_df, outcome_col)
+            
+    #         metadata_match_score = fuzz.ratio(source_metadata, outcome_col) if source_metadata else 0
+    #         type_match_score = 100 if source_dtype == outcome_dtype else 0
+    #         fuzzy_col_score = fuzzy_match(source_col, outcome_col)
+    #         # if fuzzy_col_score > 50 : print('debug col:',fuzzy_col_score,', ',source_col,', ',outcome_col)
+    #         if source_desc == '' or outcome_desc == '':
+    #             fuzzy_des_score = 0
+    #         else:
+    #             fuzzy_des_score = fuzzy_match(source_desc, outcome_desc)
+    #         # if fuzzy_des_score > 50 : print('debug des:',fuzzy_des_score,', ',source_desc,', ',outcome_desc)
+           
+    #         total_score = fuzzy_col_score * 0.8 + metadata_match_score * 0.5 + type_match_score + fuzzy_des_score
+    #         if previous_mappings and source_col in previous_mappings:
+    #             if previous_mappings[source_col] == outcome_col:
+    #                 print("found previous mapping",source_col)
+    #                 total_score += 250
+           
+    #         if total_score > best_score:
+    #             best_score = total_score
+    #             best_match = outcome_col
+    #             col_fuzzy  = fuzzy_col_score
+    #             des_fuzzy  = fuzzy_des_score
+
+               
+    #     # print(source_col,best_score,fuzzy_col_score, metadata_match_score,type_match_score,best_fuzzy)
+    #     mappings[source_col] = {"Target Column": best_match, "Mapping Score": best_score, "Fuzzy Col Score": col_fuzzy, "Fuzzy Des Score": des_fuzzy}
+    
+    print("match_columns ended !!!!!!!")
+    return mappings

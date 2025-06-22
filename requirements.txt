@@ -1,0 +1,13 @@
+# thefuzz
+# --index-url https://pypi.python.org/simple/
+# fuzzywuzzy
+fuzzywuzzy-0.18.0-py2.py3-none-any.whl
+dash
+dash-bootstrap-components
+pandas
+plotly
+databricks-sql-connector
+databricks-sdk
+python-dotenv
+dash-ag-grid
+langchain-openai
