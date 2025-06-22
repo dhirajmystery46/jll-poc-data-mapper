@@ -1,5 +1,10 @@
 import pandas as pd
 from fuzzywuzzy import fuzz
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def load_csv(file_path):
     """Loads a CSV file into a Pandas DataFrame."""
@@ -32,5 +37,5 @@ if __name__ == "__main__":
     source_file = "source_table.csv"
     df = load_csv(source_file)
     
-    print("Null values:", check_nulls(df))
-    print("Duplicate rows:", check_duplicates(df))
+    logger.info("Null values:", check_nulls(df))
+    logger.info("Duplicate rows:", check_duplicates(df))

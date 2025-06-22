@@ -5,6 +5,11 @@ import requests
 import json
 import re
 from langchain_openai import ChatOpenAI 
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 
@@ -40,7 +45,7 @@ def get_okta_token() -> str:
         return token_data.get("access_token")
 
     except Exception as e:
-        print(f"Error refreshing Okta token: {str(e)}")
+        logger.error(f"Error refreshing Okta token: {str(e)}")
         raise
 
 # self.token = config.TOKEN
@@ -149,7 +154,7 @@ def get_llm_match(source_field, target_fields,df_source,df_target, model_name="l
             if "401" in str(e):
                 # Refresh the token
                 headers["Authorization"] = f"Bearer {get_okta_token()}"
-                print("Refreshed access token successfully")
+                logger.info("Refreshed access token successfully")
                 __plainLLM = ChatOpenAI(
                     api_key=get_okta_token(),
                     base_url=base_url,
@@ -159,7 +164,7 @@ def get_llm_match(source_field, target_fields,df_source,df_target, model_name="l
                 )
                 res = __plainLLM.invoke(prompt)
                 llm_output = res.content
-        print(f"LLM output for '{source_field['name']}': {llm_output}")
+        logger.info(f"LLM output for '{source_field['name']}': {llm_output}")
         # Attempt to parse JSON. LLMs sometimes add extra text, so we'll try to find the JSON block.
         json_match = re.search(r'\{.*\}', llm_output, re.DOTALL)
         if json_match:
@@ -168,30 +173,30 @@ def get_llm_match(source_field, target_fields,df_source,df_target, model_name="l
                 parsed_output = json.loads(json_str)
                 return parsed_output
             except json.JSONDecodeError:
-                print(f"Warning: Could not parse JSON from LLM output: {json_str[:200]}...")
+                logger.info(f"Warning: Could not parse JSON from LLM output: {json_str[:200]}...")
                 return None
         else:
-            print(f"Warning: No JSON found in LLM output: {llm_output[:200]}...")
+            logger.info(f"Warning: No JSON found in LLM output: {llm_output[:200]}...")
             return None
     except Exception as e:
-        print(f"Error calling LLM for {source_field['name']}: {e}")
+        logger.info(f"Error calling LLM for {source_field['name']}: {e}")
         return None
 
 # --- 4. Main Matching Logic ---
 
 # if __name__ == "__main__":
-#     print("Starting LLM-based field matching...")
+#     logger.info("Starting LLM-based field matching...")
 #     matched_pairs = []
 #     unmatched_source_fields = []
 #     cnt = 0
 #     for s_field in source_schema:
 #         cnt += 1
-#         print(f"\nMatching source field: '{s_field['name']}'")
+#         logger.info(f"\nMatching source field: '{s_field['name']}'")
 #         if cnt == 20:
-#             print("Reached 20 fields, stopping further processing.")
+#             logger.info("Reached 20 fields, stopping further processing.")
 #             break
 #         match_result = get_llm_match(s_field, target_schema)
-#         print(f"LLM response for '{s_field['name']}': {match_result}")
+#         logger.info(f"LLM response for '{s_field['name']}': {match_result}")
 #         if match_result:
 #             source_name = match_result.get("source_field_name")
 #             target_name = match_result.get("best_match_target_field_name")
@@ -205,35 +210,35 @@ def get_llm_match(source_field, target_fields,df_source,df_target, model_name="l
 #                     "confidence": confidence,
 #                     "explanation": explanation
 #                 })
-#                 print(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
-#                 print(f"     Explanation: {explanation}")
+#                 logger.info(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
+#                 logger.info(f"     Explanation: {explanation}")
 #             else:
 #                 unmatched_source_fields.append({
 #                     "source": source_name,
 #                     "explanation": explanation
 #                 })
-#                 print(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
+#                 logger.info(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
 #         else:
 #             unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
-#             print(f"  -> Failed to process '{s_field['name']}'")
+#             logger.info(f"  -> Failed to process '{s_field['name']}'")
 
-#     print("\n--- Matching Results ---")
-#     print("\nMatched Pairs:")
+#     logger.info("\n--- Matching Results ---")
+#     logger.info("\nMatched Pairs:")
 #     if matched_pairs:
 #         for pair in matched_pairs:
-#             print(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
-#             # print(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
+#             logger.info(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
+#             # logger.info(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
 #     else:
-#         print("  No matches found.")
+#         logger.info("  No matches found.")
 
-#     print("\nUnmatched Source Fields:")
+#     logger.info("\nUnmatched Source Fields:")
 #     if unmatched_source_fields:
 #         for field in unmatched_source_fields:
-#             print(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
+#             logger.info(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
 #     else:
-#         print("  All source fields matched.")
+#         logger.info("  All source fields matched.")
 
-#     print("\nMatching process complete.")
+#     logger.info("\nMatching process complete.")
 #     solver_prompt = f"""We have attempted to match source fields to target fields using an LLM. Here are the results:
 #     Matched Pairs:  {matched_pairs}
 #     Unmatched Source Fields: {unmatched_source_fields}   
@@ -248,7 +253,7 @@ def get_llm_match(source_field, target_fields,df_source,df_target, model_name="l
 #                 )
 #     res = __plainLLMSolver.invoke(solver_prompt)
 #     solver_output = res.content
-#     print(f"\nSolver Output: \n{solver_output}")
+#     logger.info(f"\nSolver Output: \n{solver_output}")
 
 
 
@@ -259,7 +264,7 @@ def fuzzy_match(col1, col2):
 
 
 def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=None,metasrc_df=None,metatgt_df=None):
-    print("match_columns started !!!!!!!")
+    logger.info("match_columns started !!!!!!!")
     mappings = {}
     source_schema = []
     for i, row in metasrc_df.iterrows():
@@ -275,23 +280,23 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
         data['description'] = row['description']
         target_schema.append(data)
 
-    print("Starting LLM-based field matching...")
+    logger.info("Starting LLM-based field matching...")
     matched_pairs = []
     unmatched_source_fields = []
     cnt = 0
     for s_field in source_schema:
         cnt += 1
         
-        if cnt == 20:
-            print("Reached 20 fields, stopping further processing.")
-            break
-        print(f"\nMatching source field: '{s_field['name']}'")
+        # if cnt == 20:
+        #     logger.info("Reached 20 fields, stopping further processing.")
+        #     break
+        logger.info(f"\nMatching source field: '{s_field['name']}'")
         # Only process top 100 rows of the source DataFrame for the prompt
         source_sample = source_df.head(100)
         target_sample = outcome_df.head(100)
         match_result = get_llm_match(s_field, target_schema, source_sample, target_sample)
         
-        print(f"LLM response for '{s_field['name']}': {match_result}")
+        logger.info(f"LLM response for '{s_field['name']}': {match_result}")
         if match_result:
             source_name = match_result.get("source_field_name")
             target_name = match_result.get("best_match_target_field_name")
@@ -305,39 +310,39 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
                     "confidence": confidence,
                     "explanation": explanation
                 })
-                # print(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
-                # print(f"     Explanation: {explanation}")
+                # logger.info(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
+                # logger.info(f"     Explanation: {explanation}")
             else:
                 unmatched_source_fields.append({
                     "source": source_name,
                     "explanation": explanation
                 })
-                print(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
+                logger.info(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
         else:
             unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
-            print(f"  -> Failed to process '{s_field['name']}'")
+            logger.info(f"  -> Failed to process '{s_field['name']}'")
 
-    print("\n--- Matching Results ---")
-    print("\nMatched Pairs:")
+    logger.info("\n--- Matching Results ---")
+    logger.info("\nMatched Pairs:")
     if matched_pairs:
         for pair in matched_pairs:
-            # print(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
+            # logger.info(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
             conf_score = float("{:.2f}".format(pair['confidence']))
             mappings[pair['source']] = {"Target Column": pair['target'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
-            # print(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
+            # logger.info(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
     else:
-        print("  No matches found.")
+        logger.info("  No matches found.")
 
-    print("\nUnmatched Source Fields:")
+    logger.info("\nUnmatched Source Fields:")
     if unmatched_source_fields:
         for field in unmatched_source_fields:
-            print(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
+            logger.info(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
             # conf_score = float("{:.2f}".format(field['confidence']))
             mappings[field['source']] = {"Target Column": '', "Confidence Score": 0, "Explanation": field['explanation']}
     else:
-        print("  All source fields matched.")
+        logger.info("  All source fields matched.")
 
-    print("\nMatching process complete.")
+    logger.info("\nMatching process complete.")
 
     # def z_get_values(df, col):
     #     datatype = ""
@@ -365,17 +370,17 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
     #         metadata_match_score = fuzz.ratio(source_metadata, outcome_col) if source_metadata else 0
     #         type_match_score = 100 if source_dtype == outcome_dtype else 0
     #         fuzzy_col_score = fuzzy_match(source_col, outcome_col)
-    #         # if fuzzy_col_score > 50 : print('debug col:',fuzzy_col_score,', ',source_col,', ',outcome_col)
+    #         # if fuzzy_col_score > 50 : logger.info('debug col:',fuzzy_col_score,', ',source_col,', ',outcome_col)
     #         if source_desc == '' or outcome_desc == '':
     #             fuzzy_des_score = 0
     #         else:
     #             fuzzy_des_score = fuzzy_match(source_desc, outcome_desc)
-    #         # if fuzzy_des_score > 50 : print('debug des:',fuzzy_des_score,', ',source_desc,', ',outcome_desc)
+    #         # if fuzzy_des_score > 50 : logger.info('debug des:',fuzzy_des_score,', ',source_desc,', ',outcome_desc)
            
     #         total_score = fuzzy_col_score * 0.8 + metadata_match_score * 0.5 + type_match_score + fuzzy_des_score
     #         if previous_mappings and source_col in previous_mappings:
     #             if previous_mappings[source_col] == outcome_col:
-    #                 print("found previous mapping",source_col)
+    #                 logger.info("found previous mapping",source_col)
     #                 total_score += 250
            
     #         if total_score > best_score:
@@ -385,8 +390,8 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
     #             des_fuzzy  = fuzzy_des_score
 
                
-    #     # print(source_col,best_score,fuzzy_col_score, metadata_match_score,type_match_score,best_fuzzy)
+    #     # logger.info(source_col,best_score,fuzzy_col_score, metadata_match_score,type_match_score,best_fuzzy)
     #     mappings[source_col] = {"Target Column": best_match, "Mapping Score": best_score, "Fuzzy Col Score": col_fuzzy, "Fuzzy Des Score": des_fuzzy}
     
-    print("match_columns ended !!!!!!!")
+    logger.info("match_columns ended !!!!!!!")
     return mappings

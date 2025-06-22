@@ -9,7 +9,11 @@ import time
 from data_preprocessing import load_csv, check_nulls, check_duplicates, check_id_quality, analyze_column_lengths
 from tables_mapping import match_tables, load_csv_data
 from gpt_api import process_dataframe_and_generate_query
+import logging
 
+logging.basicConfig(level=logging.INFO)
+# Set up logging
+logger = logging.getLogger(__name__)
 #demo only - not connected to main app
 sql_conv_df = pd.DataFrame({
                 'column_name': ['hk_ref_edp_fms_space','client_id','ws_ID','floor_id','flooridentifier','unitdetailsid','spacestandardcode','spacetypecode',
@@ -169,7 +173,11 @@ def main():
             if st.button("Save Mapping",  use_container_width=True):
             #    icon=""
                st.write("Mapping Saved!")
-            column_mappings = match_columns(source_df, outcome_df, metadata_df, previous_mappings, metasrc_df, metatgt_df)
+            # Initialize column mappings
+            column_mappings = {}
+            if not source_df.empty and not outcome_df.empty:
+                column_mappings = match_columns(source_df, outcome_df, metadata_df, previous_mappings, metasrc_df, metatgt_df)
+
             column_mappings_df = pd.DataFrame.from_dict(column_mappings, orient='index').reset_index()
             column_mappings_df.columns = ['Original Column', 'Target Column', 'Confidence Score', 'Explanation']
 
