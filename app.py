@@ -61,7 +61,7 @@ def main():
 
     st.logo(sidebar_logo, icon_image=main_body_logo)
     
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7= st.tabs(["Data Upload", "QC", "Column Mapping", "Table Mapping", "Data samples","Links","ChatBot Sims"])
+    tab1, tab2, tab3, tab5, tab6, tab7= st.tabs(["Data Upload", "QC", "Column Mapping", "Data samples","Links","ChatBot Sims"])
     
     with tab1:
         st.header("Upload Your CSV Files")
@@ -84,7 +84,8 @@ def main():
         uploaded_metadata = st.file_uploader("Metadata File(.csv, Optional)", type=["csv"])
         uploaded_mappings = st.file_uploader("Mapping History File(csv, Optional)", type=["csv"])
 
-    if uploaded_source and uploaded_outcome:
+    # if uploaded_source and uploaded_outcome:
+    if uploaded_metasrc and uploaded_metatgt:
         source_df   = load_csv(uploaded_source) if uploaded_source else None
         outcome_df  = load_csv(uploaded_outcome) if uploaded_outcome else None
         metadata_df = load_csv(uploaded_metadata) if uploaded_metadata else None
@@ -99,62 +100,66 @@ def main():
                 previous_mappings = dict(zip(mappings_df["source_column"], mappings_df["mapped_column"]))
 
         with tab2:
+            logger.info("Starting Data Quality Checks")
             st.header("Data Quality Checks")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            # Duplicate rows KPI
-            duplicate_count = check_duplicates(source_df)
-            with col1:
-                st.plotly_chart(create_kpi_card("Duplicate Rows", duplicate_count, 
-                                                lambda x: 'red' if x > 0 else 'green'),
-                                key="duplicate_rows_kpi")
-            
-            # Columns with null values KPI
-            null_counts = check_nulls(source_df)
-            columns_with_nulls = sum(null_counts > 0)
-            with col2:
-                st.plotly_chart(create_kpi_card("Columns with Nulls", columns_with_nulls, 
-                                                lambda x: 'red' if x > 0 else 'green'),
-                                key="null_columns_kpi")
-            
-            # Total null values KPI
-            total_null_values = null_counts.sum()
-            with col3:
-                st.plotly_chart(create_kpi_card("Nulls Count", total_null_values, 
-                                                lambda x: 'red' if x > 0 else 'green'),
-                                key="total_null_values_kpi")
-            
-            # Data completeness KPI
-            data_completeness = 1 - (total_null_values / (source_df.shape[0] * source_df.shape[1]))
-            with col4:
-                st.plotly_chart(create_kpi_card("Data Completeness", data_completeness * 100, 
-                                lambda x: 'red' if x < 70 else 'gold' if 70 <= x < 90 else 'green'),
-                                key="data_completeness_kpi")
-            
-            # Null values chart
-            st.subheader("Null Values per column:")
-            null_counts_filtered = null_counts[null_counts > 0]
-            if not null_counts_filtered.empty:
-                fig = px.bar(x=null_counts_filtered.index, y=null_counts_filtered.values, 
-                            labels={'x': 'Columns', 'y': 'Number of Null Values'})
-                fig.update_traces(marker_color='red')
-                st.plotly_chart(fig, key="null_values_chart")
+            if source_df is None or source_df.empty:
+                st.write("Please upload a source file to perform data quality checks.")
             else:
-                st.write("No columns with null values.")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                # Duplicate rows KPI
+                duplicate_count = check_duplicates(source_df)
+                with col1:
+                    st.plotly_chart(create_kpi_card("Duplicate Rows", duplicate_count, 
+                                                    lambda x: 'red' if x > 0 else 'green'),
+                                    key="duplicate_rows_kpi")
+                
+                # Columns with null values KPI
+                null_counts = check_nulls(source_df)
+                columns_with_nulls = sum(null_counts > 0)
+                with col2:
+                    st.plotly_chart(create_kpi_card("Columns with Nulls", columns_with_nulls, 
+                                                    lambda x: 'red' if x > 0 else 'green'),
+                                    key="null_columns_kpi")
+                
+                # Total null values KPI
+                total_null_values = null_counts.sum()
+                with col3:
+                    st.plotly_chart(create_kpi_card("Nulls Count", total_null_values, 
+                                                    lambda x: 'red' if x > 0 else 'green'),
+                                    key="total_null_values_kpi")
+                
+                # Data completeness KPI
+                data_completeness = 1 - (total_null_values / (source_df.shape[0] * source_df.shape[1]))
+                with col4:
+                    st.plotly_chart(create_kpi_card("Data Completeness", data_completeness * 100, 
+                                    lambda x: 'red' if x < 70 else 'gold' if 70 <= x < 90 else 'green'),
+                                    key="data_completeness_kpi")
+                
+                # Null values chart
+                st.subheader("Null Values per column:")
+                null_counts_filtered = null_counts[null_counts > 0]
+                if not null_counts_filtered.empty:
+                    fig = px.bar(x=null_counts_filtered.index, y=null_counts_filtered.values, 
+                                labels={'x': 'Columns', 'y': 'Number of Null Values'})
+                    fig.update_traces(marker_color='red')
+                    st.plotly_chart(fig, key="null_values_chart")
+                else:
+                    st.write("No columns with null values.")
 
-            # Additional QC checks
-            st.subheader("ID Quality Check:")
-            id_quality = check_id_quality(source_df, 'id_column')  # Replace 'id_column' with your actual ID column name
-            if id_quality:
-                st.write(f"Unique ratio: {id_quality['unique_ratio']:.2f}")
-                st.write(f"Null values in ID column: {id_quality['null_values']}")
+                # Additional QC checks
+                st.subheader("ID Quality Check:")
+                id_quality = check_id_quality(source_df, 'id_column')  # Replace 'id_column' with your actual ID column name
+                if id_quality:
+                    st.write(f"Unique ratio: {id_quality['unique_ratio']:.2f}")
+                    st.write(f"Null values in ID column: {id_quality['null_values']}")
 
-            st.subheader("Column Length Analysis:")
-            column_lengths = analyze_column_lengths(source_df)
-            st.write(column_lengths)
+                st.subheader("Column Length Analysis:")
+                column_lengths = analyze_column_lengths(source_df)
+                st.write(column_lengths)
 
         with tab3:
+            logger.info("Starting Column Mapping")
             st.header("Column Mapping Suggestions")
             st.markdown("""
                     - Original Column: Column name from source file.
@@ -176,7 +181,8 @@ def main():
                st.write("Mapping Saved!")
             # Initialize column mappings
             column_mappings = {}
-            if not source_df.empty and not outcome_df.empty and metasrc_df is not None and metatgt_df is not None:
+            # if not source_df.empty and not outcome_df.empty and metasrc_df is not None and metatgt_df is not None:
+            if metasrc_df is not None and metatgt_df is not None:
                 column_mappings = match_columns(source_df, outcome_df, metadata_df, previous_mappings, metasrc_df, metatgt_df)
 
                 column_mappings_df = pd.DataFrame.from_dict(column_mappings, orient='index').reset_index()
@@ -246,23 +252,23 @@ def main():
                     st.write("Object was deployed!")
                     st.write (result)
                     
-        with tab4:
-            st.header("Table Mapping")
-            source_file = st.file_uploader("Upload Source CSV file", type="csv", key="source_csv")
-            target_file = st.file_uploader("Upload Target CSV file", type="csv", key="target_csv")
+        # with tab4:
+        #     st.header("Table Mapping")
+        #     source_file = st.file_uploader("Upload Source CSV file", type="csv", key="source_csv")
+        #     target_file = st.file_uploader("Upload Target CSV file", type="csv", key="target_csv")
 
-            if source_file and target_file:
-                source_df = load_csv_data(source_file)
-                target_df = load_csv_data(target_file)
+        #     if source_file and target_file:
+        #         source_df = load_csv_data(source_file)
+        #         target_df = load_csv_data(target_file)
 
-                mappings = match_tables(source_df, target_df)
+        #         mappings = match_tables(source_df, target_df)
 
-                st.subheader("Proposed Table Mappings")
-                for source_table, matches in mappings.items():
-                    st.write(f"Source Table: {source_table}")
-                    for i, (target_table, score) in enumerate(matches, 1):
-                        st.write(f"  {i}. Target Table: {target_table}, Match Score: {score:.2f}")
-                    st.write("---")    
+        #         st.subheader("Proposed Table Mappings")
+        #         for source_table, matches in mappings.items():
+        #             st.write(f"Source Table: {source_table}")
+        #             for i, (target_table, score) in enumerate(matches, 1):
+        #                 st.write(f"  {i}. Target Table: {target_table}, Match Score: {score:.2f}")
+        #             st.write("---")    
         
         with tab5:
             st.header("Data samples")

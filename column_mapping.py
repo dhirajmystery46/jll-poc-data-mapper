@@ -92,6 +92,16 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
         f"- Name: {f['name']}, Description: {f['description']}" for f in target_fields
     ])
 
+    # Only include sample DataFrames in the prompt if both are provided and not empty
+    sample_data_str = ""
+    if df_source is not None and not df_source.empty and df_target is not None and not df_target.empty:
+        sample_data_str = f"""
+        Sample DataFrames with 100 rows each:
+        Source DataFrame (df_source):
+        {df_source.head().to_string(index=False)}
+        Target DataFrame (df_target):
+        {df_target.head().to_string(index=False)}"""
+
     prompt = f"""
     You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
 
@@ -102,16 +112,13 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
     Target Fields to Choose From:
     {target_fields_str}
 
-    Sample DataFrames with 100 rows each:
-    Source DataFrame (df_source):
-    {df_source.head().to_string(index=False)}
-    Target DataFrame (df_target):
-    {df_target.head().to_string(index=False)}
+    {sample_data_str}
+
     Instructions:
     1. Analyze the source field's name and description.
     2. Compare it to each target field's name and description.
     3. Identify the *single best* semantic match.
-    4. Consider the sample data provided in the DataFrames to understand the context.
+    4. Consider the sample data if provided in the DataFrames to understand the context and relationships. Also if the source and target DataFrames are provided, use them to understand the data types and potential relationships. If decisions is derived from the data, provide an explanation of how it influenced your choice.
     5. If no target field is a good semantic match, state 'No Match'.
     6. Give low confidence scores for matches that are not very similar or multiple matches.
 
@@ -132,6 +139,7 @@ def get_llm_match(source_field, target_fields,df_source,df_target):
     Calls the LLM to get the best match for a source field.
     """
     prompt = generate_matching_prompt(source_field, target_fields,df_source,df_target)
+    # logger.info(f"Generated prompt for field '{source_field['name']}': {prompt}...")  # Log first 200 chars of the prompt
     try:
 
         llm_output = ''
@@ -293,8 +301,16 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
         #     break
         logger.info(f"\nMatching source field: '{s_field['name']}'")
         # Only process top 100 rows of the source DataFrame for the prompt
-        source_sample = source_df.head(100)
-        target_sample = outcome_df.head(100)
+        if source_df is None or source_df.empty:
+            source_sample = None
+        else:
+            source_sample = source_df.head(100)
+
+        if outcome_df is None or outcome_df.empty:
+            target_sample = None
+        else:
+            target_sample = outcome_df.head(100)
+
         match_result = get_llm_match(s_field, target_schema, source_sample, target_sample)
         
         logger.info(f"LLM response for '{s_field['name']}': {match_result}")
