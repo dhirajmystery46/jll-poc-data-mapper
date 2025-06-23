@@ -9,11 +9,12 @@ import time
 from data_preprocessing import load_csv, check_nulls, check_duplicates, check_id_quality, analyze_column_lengths
 from tables_mapping import match_tables, load_csv_data
 from gpt_api import process_dataframe_and_generate_query
-import logging
+from log_config import setup_logger
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logger = setup_logger(__name__)
 # Set up logging
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 #demo only - not connected to main app
 sql_conv_df = pd.DataFrame({
                 'column_name': ['hk_ref_edp_fms_space','client_id','ws_ID','floor_id','flooridentifier','unitdetailsid','spacestandardcode','spacetypecode',
@@ -84,8 +85,8 @@ def main():
         uploaded_mappings = st.file_uploader("Mapping History File(csv, Optional)", type=["csv"])
 
     if uploaded_source and uploaded_outcome:
-        source_df   = load_csv(uploaded_source)
-        outcome_df  = load_csv(uploaded_outcome)
+        source_df   = load_csv(uploaded_source) if uploaded_source else None
+        outcome_df  = load_csv(uploaded_outcome) if uploaded_outcome else None
         metadata_df = load_csv(uploaded_metadata) if uploaded_metadata else None
         
         metasrc_df  = load_csv(uploaded_metasrc) if uploaded_metasrc else None
@@ -175,75 +176,75 @@ def main():
                st.write("Mapping Saved!")
             # Initialize column mappings
             column_mappings = {}
-            if not source_df.empty and not outcome_df.empty:
+            if not source_df.empty and not outcome_df.empty and metasrc_df is not None and metatgt_df is not None:
                 column_mappings = match_columns(source_df, outcome_df, metadata_df, previous_mappings, metasrc_df, metatgt_df)
 
-            column_mappings_df = pd.DataFrame.from_dict(column_mappings, orient='index').reset_index()
-            column_mappings_df.columns = ['Original Column', 'Target Column', 'Confidence Score', 'Explanation']
+                column_mappings_df = pd.DataFrame.from_dict(column_mappings, orient='index').reset_index()
+                column_mappings_df.columns = ['Original Column', 'Target Column', 'Confidence Score', 'Explanation']
 
-            # Add Mapping Score Rating column
-            def get_mapping_score_rating(score):
-                if 0.8 <= score <= 1:
-                    return "High"
-                elif 0.5 <= score < 0.8:
-                    return "Medium"
-                elif 0 <= score < 0.5:
-                    return "Low"
-                else:
-                    return "Not Mapped"
+                # Add Mapping Score Rating column
+                def get_mapping_score_rating(score):
+                    if 0.8 <= score <= 1:
+                        return "High"
+                    elif 0.5 <= score < 0.8:
+                        return "Medium"
+                    elif 0 <= score < 0.5:
+                        return "Low"
+                    else:
+                        return "Not Mapped"
 
-            column_mappings_df['Mapping Score Rating'] = column_mappings_df['Confidence Score'].apply(get_mapping_score_rating)
+                column_mappings_df['Mapping Score Rating'] = column_mappings_df['Confidence Score'].apply(get_mapping_score_rating)
 
-            # Add User Validation column with dropdown
-            def get_default_validation(rating):
-                return "Success" if rating in ["AutoMapped","High", "Medium"] else "Fail"
+                # Add User Validation column with dropdown
+                def get_default_validation(rating):
+                    return "Success" if rating in ["AutoMapped","High", "Medium"] else "Fail"
 
-            column_mappings_df['User Validation'] = column_mappings_df['Mapping Score Rating'].apply(get_default_validation)
+                column_mappings_df['User Validation'] = column_mappings_df['Mapping Score Rating'].apply(get_default_validation)
 
-            # Add Manual Mapping column
-            column_mappings_df['Manual Mapping'] = ""
+                # Add Manual Mapping column
+                column_mappings_df['Manual Mapping'] = ""
 
-            # Create a copy of the dataframe to store edited values
-            edited_df = column_mappings_df.copy()
+                # Create a copy of the dataframe to store edited values
+                edited_df = column_mappings_df.copy()
 
-            # Display the dataframe with editable cells
-            edited_df = st.data_editor(
-                edited_df,
-                column_config={
-                    "User Validation": st.column_config.SelectboxColumn(
-                        options=["Success", "Fail","Manual"],
-                    ),
-                    "Manual Mapping": st.column_config.TextColumn(),
-                },
-                use_container_width=True,
-                num_rows="dynamic",
-                width=1200, height=700)
+                # Display the dataframe with editable cells
+                edited_df = st.data_editor(
+                    edited_df,
+                    column_config={
+                        "User Validation": st.column_config.SelectboxColumn(
+                            options=["Success", "Fail","Manual"],
+                        ),
+                        "Manual Mapping": st.column_config.TextColumn(),
+                    },
+                    use_container_width=True,
+                    num_rows="dynamic",
+                    width=1200, height=700)
 
-            
-            # Display the updated dataframe
-            # st.dataframe(edited_df, width=900, height=700)
-            option = st.selectbox(
-            "Please select model for your request:",
-            ("GPT 3.5 Turbo", "GPT 4o", "Anthropic Claude Sonnet 3.5 ",'Baidu Ernie 4.0','Google Gemini 1.5 Flash','Baidu DeepSeek V3'),
-            )
-            title = st.text_input("Full object name(organisation.catalog.objectname):", "biaascatdbdev.test.t_test")
-            
-            if st.button("Translate Mapping to SQL",  use_container_width=True):
-            #    icon="",
-               result = process_dataframe_and_generate_query(sql_conv_df, "biaascatdbdev.test.t_test")
-               st.write("Mapping translated, please check")
-               st.write (result)
+                
+                # Display the updated dataframe
+                # st.dataframe(edited_df, width=900, height=700)
+                option = st.selectbox(
+                "Please select model for your request:",
+                ("GPT 3.5 Turbo", "GPT 4o", "Anthropic Claude Sonnet 3.5 ",'Baidu Ernie 4.0','Google Gemini 1.5 Flash','Baidu DeepSeek V3'),
+                )
+                title = st.text_input("Full object name(organisation.catalog.objectname):", "biaascatdbdev.test.t_test")
+                
+                if st.button("Translate Mapping to SQL",  use_container_width=True):
+                #    icon="",
+                    result = process_dataframe_and_generate_query(sql_conv_df, "biaascatdbdev.test.t_test")
+                    st.write("Mapping translated, please check")
+                    st.write (result)
 
-            
-            
-            
+                
+                
+                
 
-            if st.button("Deploy!",  use_container_width=True):
-            #    icon=""
-               result = process_dataframe_and_generate_query(sql_conv_df, "biaascatdbdev.test.t_test")
-               st.write("After Deploy! empty PRE_STAGE table is created and mapped data is inserted by: sdf_export_data.write.mode('overwrite').saveAsTable('biaascatdb.dev.test.t_test')")
-               st.write("Object was deployed!")
-               st.write (result)
+                if st.button("Deploy!",  use_container_width=True):
+                #    icon=""
+                    result = process_dataframe_and_generate_query(sql_conv_df, "biaascatdbdev.test.t_test")
+                    st.write("After Deploy! empty PRE_STAGE table is created and mapped data is inserted by: sdf_export_data.write.mode('overwrite').saveAsTable('biaascatdb.dev.test.t_test')")
+                    st.write("Object was deployed!")
+                    st.write (result)
                     
         with tab4:
             st.header("Table Mapping")

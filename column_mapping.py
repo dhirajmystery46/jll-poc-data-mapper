@@ -5,11 +5,10 @@ import requests
 import json
 import re
 from langchain_openai import ChatOpenAI 
-import logging
+from log_config import setup_logger
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 
 
@@ -128,13 +127,13 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
 
 # --- 3. Function to call the LLM and parse the response ---
 
-def get_llm_match(source_field, target_fields,df_source,df_target, model_name="llama3"):
+def get_llm_match(source_field, target_fields,df_source,df_target):
     """
-    Calls the LLM (Ollama) to get the best match for a source field.
+    Calls the LLM to get the best match for a source field.
     """
     prompt = generate_matching_prompt(source_field, target_fields,df_source,df_target)
     try:
-        # response = ollama.chat(model=model_name, messages=[{'role': 'user', 'content': prompt}])
+
         llm_output = ''
         try:
             __plainLLM = ChatOpenAI(
@@ -267,25 +266,27 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
     logger.info("match_columns started !!!!!!!")
     mappings = {}
     source_schema = []
-    for i, row in metasrc_df.iterrows():
-        data = {}
-        data['name'] = row['column_name']
-        data['description'] = row['description']
-        source_schema.append(data)
+    if metasrc_df is not None:
+        for i, row in metasrc_df.iterrows():
+            data = {}
+            data['name'] = row['column_name']
+            data['description'] = row['description']
+            source_schema.append(data)
     
     target_schema = []
-    for i, row in metatgt_df.iterrows():
-        data = {}
-        data['name'] = row['column_name']
-        data['description'] = row['description']
-        target_schema.append(data)
+    if metatgt_df is not None:
+        for i, row in metatgt_df.iterrows():
+            data = {}
+            data['name'] = row['column_name']
+            data['description'] = row['description']
+            target_schema.append(data)
 
     logger.info("Starting LLM-based field matching...")
     matched_pairs = []
     unmatched_source_fields = []
     cnt = 0
     for s_field in source_schema:
-        cnt += 1
+        # cnt += 1
         
         # if cnt == 20:
         #     logger.info("Reached 20 fields, stopping further processing.")

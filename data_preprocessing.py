@@ -1,10 +1,9 @@
 import pandas as pd
 from fuzzywuzzy import fuzz
-import logging
+from log_config import setup_logger
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure logging
+logger = setup_logger(__name__)
 
 def load_csv(file_path):
     """Loads a CSV file into a Pandas DataFrame."""
