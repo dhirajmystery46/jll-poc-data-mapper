@@ -186,7 +186,7 @@ def main():
                 column_mappings = match_columns(source_df, outcome_df, metadata_df, previous_mappings, metasrc_df, metatgt_df)
 
                 column_mappings_df = pd.DataFrame.from_dict(column_mappings, orient='index').reset_index()
-                column_mappings_df.columns = ['Original Column', 'Target Column', 'Confidence Score', 'Explanation']
+                column_mappings_df.columns = ['Original Column','Source Table', 'Target Column', 'Target Table', 'Confidence Score', 'Explanation']
 
                 # Add Mapping Score Rating column
                 def get_mapping_score_rating(score):
@@ -314,17 +314,20 @@ def main():
 
             # Source table mapping
             source_table_mapping_df = pd.DataFrame({
-                'Field': ['ac_id', 'coa_cost_group_id', 'coa_source_id', 'comments'],
-                'Data_Type': ['Number', 'String', 'String', 'Text'],
+                'table_name': ['ac', 'ac', 'ac', 'ac'],
+                'column_name': ['ac_id', 'coa_cost_group_id', 'coa_source_id', 'comments'],
+                'data_type': ['Number', 'String', 'String', 'Text'],
+                'description': ['Unique identifier for the account', 'Cost group identifier', 'Source identifier for the account', 'Comments related to the account'],
                 'Values': ['1002003004', 'A21,A22,A23', 'AV1,av2,AC3', 'Comment 1, comment 2, comment 3']
             })
             display_centered_table(source_table_mapping_df, "Source Table Mapping (source_table_mapping.csv)")
 
             # Target table mapping
             target_table_mapping_df = pd.DataFrame({
-                'Table Name': ['ac', 'ac', 'ac', 'ac'],
-                'Field': ['ac_id', 'coa_cost_group_id', 'coa_source_id', 'comments'],
-                'Data_Type': ['Number', 'String', 'String', 'Text'],
+                'table_name': ['ac', 'ac', 'ac', 'ac'],
+                'column_name': ['ac_id', 'coa_cost_group_id', 'coa_source_id', 'comments'],
+                'data_type': ['Number', 'String', 'String', 'Text'],
+                'description': ['Unique identifier for the account', 'Cost group identifier', 'Source identifier for the account', 'Comments related to the account'],
                 'Values': ['1002003004', 'A21,A22,A23', 'AV1,av2,AC3', 'Comment 1, comment 2, comment 3']
             })
             display_centered_table(target_table_mapping_df, "Target Table Mapping (target_table_mapping.csv)")

@@ -89,7 +89,7 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
     from a list of target fields.
     """
     target_fields_str = "\n".join([
-        f"- Name: {f['name']}, Description: {f['description']}" for f in target_fields
+        f"- Name: {f['name']}, Description: {f['description']},Target Table: {f['table_name']}" for f in target_fields
     ])
 
     # Only include sample DataFrames in the prompt if both are provided and not empty
@@ -108,6 +108,7 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
     Source Field:
       Name: {source_field['name']}
       Description: {source_field['description']}
+      Source Table: {source_field.get('table_name', 'N/A')}
 
     Target Fields to Choose From:
     {target_fields_str}
@@ -125,7 +126,9 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
     Provide your answer in the following JSON format ONLY:
     {{
         "source_field_name": "{source_field['name']}",
+        "source_table_name": "{source_field['table_name']}",
         "best_match_target_field_name": "<name_of_best_matching_target_field_or_No_Match>",
+        "target_table_name": "<name_of_target_table_if_applicable_for_best_match_target_field>",
         "confidence_score": <a_float_between_0_and_1_representing_confidence>,
         "explanation": "<brief_reason_for_the_match_or_no_match>"
     }}
@@ -279,6 +282,8 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
             data = {}
             data['name'] = row['column_name']
             data['description'] = row['description']
+            data['table_name'] = row.get('table_name', 'N/A')
+            # data['data_type'] = row.get('data_type', 'N/A')
             source_schema.append(data)
     
     target_schema = []
@@ -287,6 +292,8 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
             data = {}
             data['name'] = row['column_name']
             data['description'] = row['description']
+            data['table_name'] = row.get('table_name', 'N/A')
+            # data['data_type'] = row.get('data_type', 'N/A')
             target_schema.append(data)
 
     logger.info("Starting LLM-based field matching...")
@@ -319,19 +326,24 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
             target_name = match_result.get("best_match_target_field_name")
             confidence = match_result.get("confidence_score")
             explanation = match_result.get("explanation")
+            source_table_name = match_result.get("source_table_name", "N/A")
+            target_table_name = match_result.get("target_table_name", "N/A")
 
             if target_name and target_name != "No Match":
                 matched_pairs.append({
                     "source": source_name,
                     "target": target_name,
                     "confidence": confidence,
-                    "explanation": explanation
+                    "explanation": explanation,
+                    "source_table": source_table_name,
+                    "target_table": target_table_name
                 })
                 # logger.info(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
                 # logger.info(f"     Explanation: {explanation}")
             else:
                 unmatched_source_fields.append({
                     "source": source_name,
+                    "source_table": source_table_name,
                     "explanation": explanation
                 })
                 logger.info(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
@@ -345,7 +357,7 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
         for pair in matched_pairs:
             # logger.info(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
             conf_score = float("{:.2f}".format(pair['confidence']))
-            mappings[pair['source']] = {"Target Column": pair['target'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
+            mappings[pair['source']] = {"Source Table": pair['source_table'], "Target Column": pair['target'], "Target Table": pair['target_table'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
             # logger.info(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
     else:
         logger.info("  No matches found.")
@@ -355,7 +367,7 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
         for field in unmatched_source_fields:
             logger.info(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
             # conf_score = float("{:.2f}".format(field['confidence']))
-            mappings[field['source']] = {"Target Column": '', "Confidence Score": 0, "Explanation": field['explanation']}
+            mappings[field['source']] = {"Source Table": field['source_table'], "Target Column": '', "Target Table": 'N/A', "Confidence Score": 0, "Explanation": field['explanation']}
     else:
         logger.info("  All source fields matched.")
 
