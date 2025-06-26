@@ -94,13 +94,44 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
 
     # Only include sample DataFrames in the prompt if both are provided and not empty
     sample_data_str = ""
+    llm_sample_output = ""
     if df_source is not None and not df_source.empty and df_target is not None and not df_target.empty:
         sample_data_str = f"""
-        Sample DataFrames with 100 rows each:
+        Sample Records with 100 rows each:
         Source DataFrame (df_source):
         {df_source.head().to_string(index=False)}
         Target DataFrame (df_target):
         {df_target.head().to_string(index=False)}"""
+
+        __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0,
+                    # default_headers={
+                    #     "Subscription-Key": self.subscription_key
+                    # }
+                    default_headers=headers
+                    )
+            
+        prompt = f"""Generate a realistic dataset of 10 complete rows showing source-to-target data mappings. Each row should contain non-null values for all fields, with corresponding values between source and target that clearly demonstrate the transformation patterns. Include diverse examples that cover common edge cases and data variations. Format the data as follows:
+
+Source DataFrame:
+[10 rows of complete source data with realistic values]
+
+Target DataFrame:
+[10 rows of corresponding target data showing how values are mapped/transformed]
+
+Ensure the sample data demonstrates key mapping relationships such as:
+- Direct field mappings (source to target)
+- Transformed fields (calculations or formatting changes)
+- Concatenated/split fields
+- Any business logic applied during transformation
+Below is the sample data to use for generating the realistic dataset:
+{sample_data_str}"""
+        res = __plainLLM.invoke(prompt)
+        logger.info(f"Generated realistic dataset: {res.content}")
+        llm_sample_output = res.content
 
     prompt = f"""
     You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
@@ -113,15 +144,18 @@ def generate_matching_prompt(source_field, target_fields,df_source,df_target):
     Target Fields to Choose From:
     {target_fields_str}
 
-    {sample_data_str}
+    {llm_sample_output}
 
-    Instructions:
-    1. Analyze the source field's name and description.
-    2. Compare it to each target field's name and description.
-    3. Identify the *single best* semantic match.
-    4. Consider the sample data if provided in the DataFrames to understand the context and relationships. Also if the source and target DataFrames are provided, use them to understand the data types and potential relationships. If decisions is derived from the data, provide an explanation of how it influenced your choice.
-    5. If no target field is a good semantic match, state 'No Match'.
-    6. Give low confidence scores for matches that are not very similar or multiple matches.
+    Rules for mapping:
+    1. Compare column names, data types, and descriptions to find the best matches
+    2. Consider sample data values to understand the actual content.
+    3. Look for semantic matches even when column names differ
+    4. Pay attention to formatting and units of measurement
+    5. Assign match scores from 0.0 to 1.0 based on confidence (1.0 = exact match)
+    6. Include mapping criteria explaining your reasoning
+    7. Include columns from the source table that do not have a corresponding column in the target table
+    8. Include columns from the target table that do not have a corresponding column in the source table
+    9. Examine data patterns in sample records
 
     Provide your answer in the following JSON format ONLY:
     {{

@@ -212,6 +212,8 @@ def main():
 
                 # Create a copy of the dataframe to store edited values
                 edited_df = column_mappings_df.copy()
+                # Reorder columns in the desired order
+                edited_df = edited_df[['Target Table', 'Target Column', 'Original Column', 'Source Table', 'Confidence Score', 'Mapping Score Rating', 'User Validation', 'Manual Mapping', 'Explanation']]
 
                 # Display the dataframe with editable cells
                 edited_df = st.data_editor(
