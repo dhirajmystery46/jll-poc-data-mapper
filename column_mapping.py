@@ -83,13 +83,17 @@ headers = {
 
 # --- 2. Function to generate the prompt for the LLM ---
 
-def generate_matching_prompt(source_field, target_fields,df_source,df_target):
+def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     """
     Generates a prompt for the LLM to find the best match for a source field
     from a list of target fields.
     """
     target_fields_str = "\n".join([
         f"- Name: {f['name']}, Description: {f['description']},Target Table: {f['table_name']}" for f in target_fields
+    ])
+
+    source_fields_str = "\n".join([
+        f"- Name: {f['name']}, Description: {f['description']},Source Table: {f['table_name']}" for f in source_fields
     ])
 
     # Only include sample DataFrames in the prompt if both are provided and not empty
@@ -130,16 +134,14 @@ Ensure the sample data demonstrates key mapping relationships such as:
 Below is the sample data to use for generating the realistic dataset:
 {sample_data_str}"""
         res = __plainLLM.invoke(prompt)
-        logger.info(f"Generated realistic dataset: {res.content}")
+        # logger.info(f"Generated realistic dataset: {res.content}")
         llm_sample_output = res.content
 
     prompt = f"""
     You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
 
-    Source Field:
-      Name: {source_field['name']}
-      Description: {source_field['description']}
-      Source Table: {source_field.get('table_name', 'N/A')}
+    Source Fields to choose from:
+    {source_fields_str}
 
     Target Fields to Choose From:
     {target_fields_str}
@@ -158,24 +160,24 @@ Below is the sample data to use for generating the realistic dataset:
     9. Examine data patterns in sample records
 
     Provide your answer in the following JSON format ONLY:
-    {{
-        "source_field_name": "{source_field['name']}",
-        "source_table_name": "{source_field['table_name']}",
+    [{{
+        "source_field_name": "source_field['name']",
+        "source_table_name": "source_field['table_name']",
         "best_match_target_field_name": "<name_of_best_matching_target_field_or_No_Match>",
         "target_table_name": "<name_of_target_table_if_applicable_for_best_match_target_field>",
         "confidence_score": <a_float_between_0_and_1_representing_confidence>,
         "explanation": "<brief_reason_for_the_match_or_no_match>"
-    }}
+    }}]
     """
     return prompt
 
 # --- 3. Function to call the LLM and parse the response ---
 
-def get_llm_match(source_field, target_fields,df_source,df_target):
+def get_llm_match(source_fields, target_fields,df_source,df_target):
     """
     Calls the LLM to get the best match for a source field.
     """
-    prompt = generate_matching_prompt(source_field, target_fields,df_source,df_target)
+    prompt = generate_matching_prompt(source_fields, target_fields,df_source,df_target)
     # logger.info(f"Generated prompt for field '{source_field['name']}': {prompt}...")  # Log first 200 chars of the prompt
     try:
 
@@ -208,22 +210,22 @@ def get_llm_match(source_field, target_fields,df_source,df_target):
                 )
                 res = __plainLLM.invoke(prompt)
                 llm_output = res.content
-        logger.info(f"LLM output for '{source_field['name']}': {llm_output}")
+        logger.info(f"LLM output : {llm_output}")
         # Attempt to parse JSON. LLMs sometimes add extra text, so we'll try to find the JSON block.
-        json_match = re.search(r'\{.*\}', llm_output, re.DOTALL)
+        json_match = re.search(r'\[\s*\{.*?\}\s*\]', llm_output, re.DOTALL)
         if json_match:
             json_str = json_match.group(0)
             try:
                 parsed_output = json.loads(json_str)
                 return parsed_output
             except json.JSONDecodeError:
-                logger.info(f"Warning: Could not parse JSON from LLM output: {json_str[:200]}...")
+                logger.info(f"Warning: Could not parse JSON array from LLM output: {json_str[:200]}...")
                 return None
         else:
-            logger.info(f"Warning: No JSON found in LLM output: {llm_output[:200]}...")
+            logger.info(f"Warning: No JSON array found in LLM output: {llm_output[:200]}...")
             return None
     except Exception as e:
-        logger.info(f"Error calling LLM for {source_field['name']}: {e}")
+        logger.info(f"Error calling LLM: {e}")
         return None
 
 # --- 4. Main Matching Logic ---
@@ -334,76 +336,96 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
     matched_pairs = []
     unmatched_source_fields = []
     cnt = 0
-    for s_field in source_schema:
-        # cnt += 1
-        
-        # if cnt == 20:
-        #     logger.info("Reached 20 fields, stopping further processing.")
-        #     break
-        logger.info(f"\nMatching source field: '{s_field['name']}'")
-        # Only process top 100 rows of the source DataFrame for the prompt
-        if source_df is None or source_df.empty:
+    if source_df is None or source_df.empty:
             source_sample = None
-        else:
-            source_sample = source_df.head(100)
+    else:
+        source_sample = source_df.head(100)
 
-        if outcome_df is None or outcome_df.empty:
-            target_sample = None
-        else:
-            target_sample = outcome_df.head(100)
-
-        match_result = get_llm_match(s_field, target_schema, source_sample, target_sample)
+    if outcome_df is None or outcome_df.empty:
+        target_sample = None
+    else:
+        target_sample = outcome_df.head(100)
+    match_result = get_llm_match(source_schema, target_schema, source_sample, target_sample)
+    # for s_field in source_schema:
+    #     # cnt += 1
         
-        logger.info(f"LLM response for '{s_field['name']}': {match_result}")
-        if match_result:
-            source_name = match_result.get("source_field_name")
-            target_name = match_result.get("best_match_target_field_name")
-            confidence = match_result.get("confidence_score")
-            explanation = match_result.get("explanation")
-            source_table_name = match_result.get("source_table_name", "N/A")
-            target_table_name = match_result.get("target_table_name", "N/A")
+    #     # if cnt == 20:
+    #     #     logger.info("Reached 20 fields, stopping further processing.")
+    #     #     break
+    #     logger.info(f"\nMatching source field: '{s_field['name']}'")
+    #     # Only process top 100 rows of the source DataFrame for the prompt
+    #     if source_df is None or source_df.empty:
+    #         source_sample = None
+    #     else:
+    #         source_sample = source_df.head(100)
 
-            if target_name and target_name != "No Match":
-                matched_pairs.append({
-                    "source": source_name,
-                    "target": target_name,
-                    "confidence": confidence,
-                    "explanation": explanation,
-                    "source_table": source_table_name,
-                    "target_table": target_table_name
-                })
-                # logger.info(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
-                # logger.info(f"     Explanation: {explanation}")
-            else:
-                unmatched_source_fields.append({
-                    "source": source_name,
-                    "source_table": source_table_name,
-                    "explanation": explanation
-                })
-                logger.info(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
-        else:
-            unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
-            logger.info(f"  -> Failed to process '{s_field['name']}'")
+    #     if outcome_df is None or outcome_df.empty:
+    #         target_sample = None
+    #     else:
+    #         target_sample = outcome_df.head(100)
 
+    #     match_result = get_llm_match(s_field, target_schema, source_sample, target_sample)
+        
+    #     logger.info(f"LLM response for '{s_field['name']}': {match_result}")
+    #     if match_result:
+    #         source_name = match_result.get("source_field_name")
+    #         target_name = match_result.get("best_match_target_field_name")
+    #         confidence = match_result.get("confidence_score")
+    #         explanation = match_result.get("explanation")
+    #         source_table_name = match_result.get("source_table_name", "N/A")
+    #         target_table_name = match_result.get("target_table_name", "N/A")
+
+    #         if target_name and target_name != "No Match":
+    #             matched_pairs.append({
+    #                 "source": source_name,
+    #                 "target": target_name,
+    #                 "confidence": confidence,
+    #                 "explanation": explanation,
+    #                 "source_table": source_table_name,
+    #                 "target_table": target_table_name
+    #             })
+    #             # logger.info(f"  -> Match found: '{source_name}' to '{target_name}' (Confidence: {confidence:.2f})")
+    #             # logger.info(f"     Explanation: {explanation}")
+    #         else:
+    #             unmatched_source_fields.append({
+    #                 "source": source_name,
+    #                 "source_table": source_table_name,
+    #                 "explanation": explanation
+    #             })
+    #             logger.info(f"  -> No match found for '{source_name}' (Explanation: {explanation})")
+    #     else:
+    #         unmatched_source_fields.append({"source": s_field['name'], "explanation": "LLM call or parsing failed."})
+    #         logger.info(f"  -> Failed to process '{s_field['name']}'")
+    logger.info(f"LLM response for source schema: {match_result}")
     logger.info("\n--- Matching Results ---")
-    logger.info("\nMatched Pairs:")
-    if matched_pairs:
-        for pair in matched_pairs:
-            # logger.info(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
-            conf_score = float("{:.2f}".format(pair['confidence']))
-            mappings[pair['source']] = {"Source Table": pair['source_table'], "Target Column": pair['target'], "Target Table": pair['target_table'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
-            # logger.info(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
-    else:
-        logger.info("  No matches found.")
+    # logger.info("\nMatched Pairs:")
+    # if matched_pairs:
+    #     for pair in matched_pairs:
+    #         # logger.info(f"  Source: '{pair['source']}' -> Target: '{pair['target']}' (Confidence: {pair['confidence']:.2f})")
+    #         conf_score = float("{:.2f}".format(pair['confidence']))
+    #         mappings[pair['source']] = {"Source Table": pair['source_table'], "Target Column": pair['target'], "Target Table": pair['target_table'], "Confidence Score": conf_score, "Explanation": pair['explanation']}
+    #         # logger.info(f"    Explanation: {pair['explanation']}") # Uncomment to see explanations again
+    # else:
+    #     logger.info("  No matches found.")
 
-    logger.info("\nUnmatched Source Fields:")
-    if unmatched_source_fields:
-        for field in unmatched_source_fields:
-            logger.info(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
-            # conf_score = float("{:.2f}".format(field['confidence']))
-            mappings[field['source']] = {"Source Table": field['source_table'], "Target Column": '', "Target Table": 'N/A', "Confidence Score": 0, "Explanation": field['explanation']}
-    else:
-        logger.info("  All source fields matched.")
+    # logger.info("\nUnmatched Source Fields:")
+    # if unmatched_source_fields:
+    #     for field in unmatched_source_fields:
+    #         logger.info(f"  Source: '{field['source']}' (Reason: {field['explanation']})")
+    #         # conf_score = float("{:.2f}".format(field['confidence']))
+    #         mappings[field['source']] = {"Source Table": field['source_table'], "Target Column": '', "Target Table": 'N/A', "Confidence Score": 0, "Explanation": field['explanation']}
+    # else:
+    #     logger.info("  All source fields matched.")
+    
+    for res in match_result:
+        source_col = res.get("source_field_name")
+        target_col = res.get("best_match_target_field_name")
+        if source_col and target_col:
+            conf_score = float("{:.2f}".format(res.get("confidence_score", 0)))
+            explanation = res.get("explanation", "")
+            source_table = res.get("source_table_name", "N/A")
+            target_table = res.get("target_table_name", "N/A")
+            mappings[source_col] = {"Source Table": source_table, "Target Column": target_col, "Target Table": target_table, "Confidence Score": conf_score, "Explanation": explanation}
 
     logger.info("\nMatching process complete.")
 
