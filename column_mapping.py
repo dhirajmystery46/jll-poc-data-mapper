@@ -140,62 +140,78 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
         "target_data": {json.dumps(target_sample, indent=2)}
         """
 
-        # __plainLLM = ChatOpenAI(
-        #             api_key=get_okta_token(),
-        #             base_url=base_url,
-        #             model=model,
-        #             temperature=0,
-        #             # default_headers={
-        #             #     "Subscription-Key": self.subscription_key
-        #             # }
-        #             default_headers=headers
-        #             )
+        __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0,
+                    # default_headers={
+                    #     "Subscription-Key": self.subscription_key
+                    # }
+                    default_headers=headers
+                    )
         
-        # data_prompt = f"""From the sample data provided, select 10 rows that meet the following criteria:
+        data_prompt = f"""From the sample data provided, select 10 rows that meet the following criteria:
 
-        #         Each selected row should have at least 1-2 non-null values (complete values not required for all fields)
-        #         Prioritize rows where there is some similarity between corresponding values in the source and target data
-        #         Try to include rows that, collectively, provide examples of values for all fields
-        #         Include all the fields from source and target data for each row.
-        #         Return the selected data in the following JSON format:
+                1. Prioritize rows where there is some similarity between corresponding values in the source and target data and where the values are not null.
+                Return the selected data in the following JSON format:
 
-        #         {{
-        #         "source_data": [
-        #             {{}}, // Row 1
-        #             {{}}, // Row 2
-        #             // ... and so on for 10 rows
-        #         ],
-        #         "target_data": [
-        #             {{}}, // Row 1
-        #             {{}}, // Row 2
-        #             // ... and so on for 10 rows
-        #         ]
-        #         }}
-        #         The goal is to understand the data structure and relationships between source and target fields, even if individual rows are partially incomplete
-        #         Sample Data:
-        #         {sample_data_str}
-        #         """
-        # try:
-        #     logger.info(f"data_prompt started at {datetime.now()}")
-        #     res = __plainLLM.invoke(data_prompt)
-        #     logger.info(f"Generated sample dataset at at {datetime.now()} : {res.content}")
-        #     llm_sample_output = res.content
-        # except Exception as e:
-        #     if "401" in str(e):
-        #         # Refresh the token
-        #         headers["Authorization"] = f"Bearer {get_okta_token()}"
-        #         logger.info("Refreshed access token successfully")
-        #         __plainLLM = ChatOpenAI(
-        #             api_key=get_okta_token(),
-        #             base_url=base_url,
-        #             model=model,
-        #             temperature=0.2,
-        #             default_headers=headers
-        #         )
-        #         res = __plainLLM.invoke(data_prompt)
-        #         llm_sample_output = res.content
-        #     else:
-        #         logger.error(f"Error generating sample dataset: {e}")
+                {{
+                "source_data": [
+                    {{}}, // Row 1
+                    {{}}, // Row 2
+                    // ... and so on for 10 rows
+                ],
+                "target_data": [
+                    {{}}, // Row 1
+                    {{}}, // Row 2
+                    // ... and so on for 10 rows
+                ]
+                }}
+                The goal is to understand the data structure and relationships between source and target fields, even if individual rows are partially incomplete
+                Sample Data:
+                {sample_data_str}
+                """
+        try:
+            logger.info(f"data_prompt started at {datetime.now()}")
+            res = __plainLLM.invoke(data_prompt)
+            logger.info(f"Generated sample dataset at at {datetime.now()} : {res.content}")
+            llm_sample_output = res.content
+        except Exception as e:
+            if "401" in str(e):
+                # Refresh the token
+                headers["Authorization"] = f"Bearer {get_okta_token()}"
+                logger.info("Refreshed access token successfully")
+                __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0.2,
+                    default_headers=headers
+                )
+                res = __plainLLM.invoke(data_prompt)
+                llm_sample_output = res.content
+            else:
+                logger.error(f"Error generating sample dataset: {e}")
+
+        try:
+            output_json_match = re.search(r'\{.*\}', llm_sample_output, re.DOTALL)
+            if output_json_match:
+                output_json = json.loads(output_json_match.group(0))
+                source_data = output_json.get("source_data", [])
+                target_data = output_json.get("target_data", [])
+            else:
+                source_data = []
+                target_data = []
+        except Exception as ex:
+            logger.error(f"Error extracting source_data/target_data: {ex}")
+            source_data = []
+            target_data = []
+    if source_data and target_data:
+        sample_data_str = f"""
+        "source_data": {json.dumps(source_data, indent=2)},
+        "target_data": {json.dumps(target_data, indent=2)}
+        """
 
 
     #     data_prompt = f"""Generate a dataset of 10 complete rows showing all the fields that are present in the source and target data. For each field included, ensure that at least one of the 10 sample records contains a non-null value for that field (no field should be null in all rows). If possible, include realistic and diverse values, including edge cases and data variations. The dataset should reflect the mapping relationship between the source and target fields.
@@ -252,7 +268,9 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     #     "source_data": {json.dumps(source_data, indent=2)},
     #     "target_data": {json.dumps(target_data, indent=2)}
     #     """
-    prompt = f"""You are an intelligent AI assistant who can look at source and target schemas. Analyze the following source schema and map it to the target table schema.
+    prompt = f"""
+     You are an expert data integration specialist. Your task is to find the single best match for a given source field from a provided list of target fields. Consider both the field name, its description and sample data values to determine the best match. If no suitable match is found, return "No Match" for that field.
+
     Source Fields to choose from:
     {src_flds_str}
 
@@ -269,17 +287,16 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     4. Pay attention to formatting and units of measurement
     5. Assign match scores from 0.0 to 1.0 based on confidence (1.0 = exact match)
     6. Include mapping criteria explaining your reasoning
-    7. Skip columns where no reasonable mapping exists
-    8. Consider relationships between fields when making matches
-    9. Include columns from the source table that do not have a corresponding column in the target table
-    10. Include columns from the target table that do not have a corresponding column in the source table
-    11. Examine data patterns in sample records
+    7. Consider relationships between fields when making matches
+    8. Include columns from the source table that do not have a corresponding column in the target table
+    9. Include columns from the target table that do not have a corresponding column in the source table
+    10. Examine data patterns in sample records
 
     Provide your answer in the following JSON format ONLY:
     [{{
         "source_field_name": "source_field['name']",
         "source_table_name": "source_field['table_name']",
-        "best_match_target_field_name": "<name_of_best_matching_target_field_or_''>",
+        "best_match_target_field_name": "<name_of_best_matching_target_field_or_'No Match'>",
         "target_table_name": "<name_of_target_table_if_applicable_for_best_match_target_field>",
         "confidence_score": <a_float_between_0_and_1_representing_confidence>,
         "explanation": "<brief_reason_for_the_match_or_no_match>"
