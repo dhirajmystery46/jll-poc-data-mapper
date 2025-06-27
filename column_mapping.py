@@ -132,8 +132,8 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     llm_sample_output = ""
     if df_source is not None and not df_source.empty and df_target is not None and not df_target.empty:
         # Convert the first 100 rows of each DataFrame to a list of dicts for JSON-style sample data
-        source_sample = df_source.head(50).to_dict(orient="records")
-        target_sample = df_target.head(50).to_dict(orient="records")
+        source_sample = df_source.head(30).to_dict(orient="records")
+        target_sample = df_target.head(30).to_dict(orient="records")
 
         sample_data_str = f"""
         "source_data": {json.dumps(source_sample, indent=2)},
@@ -274,7 +274,6 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     9. Include columns from the source table that do not have a corresponding column in the target table
     10. Include columns from the target table that do not have a corresponding column in the source table
     11. Examine data patterns in sample records
-    12. Include only the columns which are provided in the source and target schemas, do not add any new columns from data samples.
 
     Provide your answer in the following JSON format ONLY:
     [{{
