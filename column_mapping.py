@@ -1,3 +1,4 @@
+from datetime import datetime
 import pandas as pd
 from fuzzywuzzy import fuzz
 # from thefuzz import fuzz
@@ -6,6 +7,7 @@ import json
 import re
 from langchain_openai import ChatOpenAI 
 from log_config import setup_logger
+from collections import defaultdict
 
 # Configure logging
 logger = setup_logger(__name__)
@@ -88,80 +90,177 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     Generates a prompt for the LLM to find the best match for a source field
     from a list of target fields.
     """
-    target_fields_str = "\n".join([
-        f"- Name: {f['name']}, Description: {f['description']},Target Table: {f['table_name']}" for f in target_fields
-    ])
+    # Group target fields by table name for structured output
+    target_tables = defaultdict(list)
+    for f in target_fields:
+        target_tables[f.get('table_name', 'N/A')].append({
+            "columnName": f['name'],
+            "description": f.get('description', '')
+        })
 
-    source_fields_str = "\n".join([
-        f"- Name: {f['name']}, Description: {f['description']},Source Table: {f['table_name']}" for f in source_fields
-    ])
+    source_tables = defaultdict(list)
+    for f in source_fields:
+        source_tables[f.get('table_name', 'N/A')].append({
+            "columnName": f['name'],
+            "description": f.get('description', '')
+        })
+    # target_fields_str = "\n".join([
+    #     f"""Table: {table}\nColumns:\n""" + "\n".join([
+    #         f"  - columnName: {col['columnName']}, description: {col['description']}"
+    #         for col in cols
+    #     ])
+    #     for table, cols in target_tables.items()
+    # ])
+
+    # source_fields_str = "\n".join([
+    #     f"""Table: {table}\nColumns:\n""" + "\n".join([
+    #         f"  - columnName: {col['columnName']}, description: {col['description']}"
+    #         for col in cols
+    #     ])
+    #     for table, cols in source_tables.items()
+    # ])
+
+    src_flds_str = f"""
+        "source_fields": {json.dumps(source_tables, indent=2)}
+        """
+    tgt_flds_str = f"""
+        "target_fields": {json.dumps(target_tables, indent=2)}
+        """
 
     # Only include sample DataFrames in the prompt if both are provided and not empty
     sample_data_str = ""
     llm_sample_output = ""
     if df_source is not None and not df_source.empty and df_target is not None and not df_target.empty:
+        # Convert the first 100 rows of each DataFrame to a list of dicts for JSON-style sample data
+        source_sample = df_source.head(50).to_dict(orient="records")
+        target_sample = df_target.head(50).to_dict(orient="records")
+
         sample_data_str = f"""
-        Sample Records with 100 rows each:
-        Source DataFrame (df_source):
-        {df_source.head().to_string(index=False)}
-        Target DataFrame (df_target):
-        {df_target.head().to_string(index=False)}"""
+        "source_data": {json.dumps(source_sample, indent=2)},
+        "target_data": {json.dumps(target_sample, indent=2)}
+        """
 
-        __plainLLM = ChatOpenAI(
-                    api_key=get_okta_token(),
-                    base_url=base_url,
-                    model=model,
-                    temperature=0,
-                    # default_headers={
-                    #     "Subscription-Key": self.subscription_key
-                    # }
-                    default_headers=headers
-                    )
-            
-        prompt = f"""Generate a realistic dataset of 10 complete rows showing source-to-target data mappings. Each row should contain non-null values for all fields, with corresponding values between source and target that clearly demonstrate the transformation patterns. Include diverse examples that cover common edge cases and data variations. Format the data as follows:
+        # __plainLLM = ChatOpenAI(
+        #             api_key=get_okta_token(),
+        #             base_url=base_url,
+        #             model=model,
+        #             temperature=0,
+        #             # default_headers={
+        #             #     "Subscription-Key": self.subscription_key
+        #             # }
+        #             default_headers=headers
+        #             )
+        
+        # data_prompt = f"""From the sample data provided, select 10 rows that meet the following criteria:
 
-Source DataFrame:
-[10 rows of complete source data with realistic values]
+        #         Each selected row should have at least 1-2 non-null values (complete values not required for all fields)
+        #         Prioritize rows where there is some similarity between corresponding values in the source and target data
+        #         Try to include rows that, collectively, provide examples of values for all fields
+        #         Include all the fields from source and target data for each row.
+        #         Return the selected data in the following JSON format:
 
-Target DataFrame:
-[10 rows of corresponding target data showing how values are mapped/transformed]
+        #         {{
+        #         "source_data": [
+        #             {{}}, // Row 1
+        #             {{}}, // Row 2
+        #             // ... and so on for 10 rows
+        #         ],
+        #         "target_data": [
+        #             {{}}, // Row 1
+        #             {{}}, // Row 2
+        #             // ... and so on for 10 rows
+        #         ]
+        #         }}
+        #         The goal is to understand the data structure and relationships between source and target fields, even if individual rows are partially incomplete
+        #         Sample Data:
+        #         {sample_data_str}
+        #         """
+        # try:
+        #     logger.info(f"data_prompt started at {datetime.now()}")
+        #     res = __plainLLM.invoke(data_prompt)
+        #     logger.info(f"Generated sample dataset at at {datetime.now()} : {res.content}")
+        #     llm_sample_output = res.content
+        # except Exception as e:
+        #     if "401" in str(e):
+        #         # Refresh the token
+        #         headers["Authorization"] = f"Bearer {get_okta_token()}"
+        #         logger.info("Refreshed access token successfully")
+        #         __plainLLM = ChatOpenAI(
+        #             api_key=get_okta_token(),
+        #             base_url=base_url,
+        #             model=model,
+        #             temperature=0.2,
+        #             default_headers=headers
+        #         )
+        #         res = __plainLLM.invoke(data_prompt)
+        #         llm_sample_output = res.content
+        #     else:
+        #         logger.error(f"Error generating sample dataset: {e}")
 
-Ensure the sample data demonstrates key mapping relationships such as:
-- Direct field mappings (source to target)
-- Transformed fields (calculations or formatting changes)
-- Concatenated/split fields
-- Any business logic applied during transformation
-Below is the sample data to use for generating the realistic dataset:
-{sample_data_str}"""
-        res = __plainLLM.invoke(prompt)
-        # logger.info(f"Generated realistic dataset: {res.content}")
-        try:
-            llm_sample_output = res.content
-        except Exception as e:
-            if "401" in str(e):
-                # Refresh the token
-                headers["Authorization"] = f"Bearer {get_okta_token()}"
-                logger.info("Refreshed access token successfully")
-                __plainLLM = ChatOpenAI(
-                    api_key=get_okta_token(),
-                    base_url=base_url,
-                    model=model,
-                    temperature=0.2,
-                    default_headers=headers
-                )
-                res = __plainLLM.invoke(prompt)
-                llm_sample_output = res.content
 
-    prompt = f"""
-    You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
+    #     data_prompt = f"""Generate a dataset of 10 complete rows showing all the fields that are present in the source and target data. For each field included, ensure that at least one of the 10 sample records contains a non-null value for that field (no field should be null in all rows). If possible, include realistic and diverse values, including edge cases and data variations. The dataset should reflect the mapping relationship between the source and target fields.
 
+    # Return the output as a single JSON object with the following structure:
+    # {{
+    #   "source_data": [{{}},],    10 rows of complete source data as a list of dicts (all fields present)
+    #   "target_data": [{{}},]    10 rows of corresponding target data as a list of dicts (all fields present)
+    # }}
+
+    # Requirements:
+    # - For every field, at least one row must have a non-null value for that field.
+    # - Populate the sample data to demonstrate realistic and diverse values, including edge cases and data variations.
+    # - Values in source and target should correspond to each other, reflecting the mapping relationship.
+
+    # Below is the sample data to use for generating the realistic dataset:
+    # {sample_data_str}
+    # """
+    #     logger.info("data_prompt started")
+    #     try:
+    #         res = __plainLLM.invoke(data_prompt)
+    #         logger.info(f"Generated realistic dataset: {res.content}")
+    #         llm_sample_output = res.content
+    #     except Exception as e:
+    #         if "401" in str(e):
+    #             # Refresh the token
+    #             headers["Authorization"] = f"Bearer {get_okta_token()}"
+    #             logger.info("Refreshed access token successfully")
+    #             __plainLLM = ChatOpenAI(
+    #                 api_key=get_okta_token(),
+    #                 base_url=base_url,
+    #                 model=model,
+    #                 temperature=0.2,
+    #                 default_headers=headers
+    #             )
+    #             res = __plainLLM.invoke(prompt)
+    #             llm_sample_output = res.content
+    #             # Try to extract source_data and target_data from the LLM output
+    #     try:
+    #         output_json_match = re.search(r'\{.*\}', llm_sample_output, re.DOTALL)
+    #         if output_json_match:
+    #             output_json = json.loads(output_json_match.group(0))
+    #             source_data = output_json.get("source_data", [])
+    #             target_data = output_json.get("target_data", [])
+    #         else:
+    #             source_data = []
+    #             target_data = []
+    #     except Exception as ex:
+            # logger.error(f"Error extracting source_data/target_data: {ex}")
+            # source_data = []
+            # target_data = []
+    # if source_data and target_data:
+    #     sample_data_str = f"""
+    #     "source_data": {json.dumps(source_data, indent=2)},
+    #     "target_data": {json.dumps(target_data, indent=2)}
+    #     """
+    prompt = f"""You are an intelligent AI assistant who can look at source and target schemas. Analyze the following source schema and map it to the target table schema.
     Source Fields to choose from:
-    {source_fields_str}
+    {src_flds_str}
 
     Target Fields to Choose From:
-    {target_fields_str}
+    {tgt_flds_str}
 
-    {llm_sample_output}
+    Sample Data from Source and Target:
+    {sample_data_str}
 
     Rules for mapping:
     1. Compare column names, data types, and descriptions to find the best matches
@@ -175,17 +274,19 @@ Below is the sample data to use for generating the realistic dataset:
     9. Include columns from the source table that do not have a corresponding column in the target table
     10. Include columns from the target table that do not have a corresponding column in the source table
     11. Examine data patterns in sample records
+    12. Include only the columns which are provided in the source and target schemas, do not add any new columns from data samples.
 
     Provide your answer in the following JSON format ONLY:
     [{{
         "source_field_name": "source_field['name']",
         "source_table_name": "source_field['table_name']",
-        "best_match_target_field_name": "<name_of_best_matching_target_field_or_No_Match>",
+        "best_match_target_field_name": "<name_of_best_matching_target_field_or_''>",
         "target_table_name": "<name_of_target_table_if_applicable_for_best_match_target_field>",
         "confidence_score": <a_float_between_0_and_1_representing_confidence>,
         "explanation": "<brief_reason_for_the_match_or_no_match>"
     }}]
     """
+    logger.info(f"Generated prompt for matching: {prompt}")  # Log first 500 chars of the prompt
     return prompt
 
 # --- 3. Function to call the LLM and parse the response ---
@@ -210,8 +311,9 @@ def get_llm_match(source_fields, target_fields,df_source,df_target):
                     # }
                     default_headers=headers
                     )
-            
+            logger.info(f"Calling LLM with prompt at {datetime.now()}")  
             res = __plainLLM.invoke(prompt)
+            logger.info(f"LLM Finished at {datetime.now()}") 
             llm_output = res.content
         except Exception as e:
             if "401" in str(e):
@@ -440,8 +542,8 @@ def match_columns(source_df, outcome_df, metadata_df=None, previous_mappings=Non
         if source_col and target_col:
             conf_score = float("{:.2f}".format(res.get("confidence_score", 0)))
             explanation = res.get("explanation", "")
-            source_table = res.get("source_table_name", "N/A")
-            target_table = res.get("target_table_name", "N/A")
+            source_table = res.get("source_table_name", " ")
+            target_table = res.get("target_table_name", " ")
             mappings[source_col] = {"Source Table": source_table, "Target Column": target_col, "Target Table": target_table, "Confidence Score": conf_score, "Explanation": explanation}
 
     logger.info("\nMatching process complete.")
