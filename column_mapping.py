@@ -135,7 +135,22 @@ Below is the sample data to use for generating the realistic dataset:
 {sample_data_str}"""
         res = __plainLLM.invoke(prompt)
         # logger.info(f"Generated realistic dataset: {res.content}")
-        llm_sample_output = res.content
+        try:
+            llm_sample_output = res.content
+        except Exception as e:
+            if "401" in str(e):
+                # Refresh the token
+                headers["Authorization"] = f"Bearer {get_okta_token()}"
+                logger.info("Refreshed access token successfully")
+                __plainLLM = ChatOpenAI(
+                    api_key=get_okta_token(),
+                    base_url=base_url,
+                    model=model,
+                    temperature=0.2,
+                    default_headers=headers
+                )
+                res = __plainLLM.invoke(prompt)
+                llm_sample_output = res.content
 
     prompt = f"""
     You are an expert data integration specialist. Your task is to find the single best semantic match for a given source field from a provided list of target fields. Consider both the field name and its description.
@@ -155,9 +170,11 @@ Below is the sample data to use for generating the realistic dataset:
     4. Pay attention to formatting and units of measurement
     5. Assign match scores from 0.0 to 1.0 based on confidence (1.0 = exact match)
     6. Include mapping criteria explaining your reasoning
-    7. Include columns from the source table that do not have a corresponding column in the target table
-    8. Include columns from the target table that do not have a corresponding column in the source table
-    9. Examine data patterns in sample records
+    7. Skip columns where no reasonable mapping exists
+    8. Consider relationships between fields when making matches
+    9. Include columns from the source table that do not have a corresponding column in the target table
+    10. Include columns from the target table that do not have a corresponding column in the source table
+    11. Examine data patterns in sample records
 
     Provide your answer in the following JSON format ONLY:
     [{{
