@@ -207,11 +207,12 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
             logger.error(f"Error extracting source_data/target_data: {ex}")
             source_data = []
             target_data = []
-    if source_data and target_data:
-        sample_data_str = f"""
-        "source_data": {json.dumps(source_data, indent=2)},
-        "target_data": {json.dumps(target_data, indent=2)}
-        """
+            
+        if source_data and target_data:
+            sample_data_str = f"""
+            "source_data": {json.dumps(source_data, indent=2)},
+            "target_data": {json.dumps(target_data, indent=2)}
+            """
 
 
     #     data_prompt = f"""Generate a dataset of 10 complete rows showing all the fields that are present in the source and target data. For each field included, ensure that at least one of the 10 sample records contains a non-null value for that field (no field should be null in all rows). If possible, include realistic and diverse values, including edge cases and data variations. The dataset should reflect the mapping relationship between the source and target fields.
