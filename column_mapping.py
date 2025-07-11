@@ -16,7 +16,7 @@ logger = setup_logger(__name__)
 
 base_url = "https://api-prod.jll.com/csp/chat-service/api/v1"
 subscription_key = "e3c3d48a04e04f10be62efffd0f972ac"
-model = "CLAUDE_3_SONNET_37"
+model = "CLAUDE_3_SONNET_35"
 
 # Okta Configuration
 OKTA_TOKEN_URL="https://api-prod.jll.com/okta/token"
@@ -132,12 +132,27 @@ def generate_matching_prompt(source_fields, target_fields,df_source,df_target):
     llm_sample_output = ""
     if df_source is not None and not df_source.empty and df_target is not None and not df_target.empty:
         # Convert the first 100 rows of each DataFrame to a list of dicts for JSON-style sample data
-        source_sample = df_source.head(30).to_dict(orient="records")
-        target_sample = df_target.head(30).to_dict(orient="records")
+        src_columns = df_source.columns.tolist()
+        # For each column, get up to 2 sample values
+        src_sample_values = {}
+        for col in src_columns:
+            # Drop NA and get unique values, then take up to 2
+            values = df_source[col].dropna().unique()[:5]
+            # Convert numpy types to native Python types for JSON serialization
+            src_sample_values[col] = [str(v) if not isinstance(v, (str, int, float, bool)) else v for v in values]
+
+        tgt_columns = df_target.columns.tolist()
+        # For each column, get up to 2 sample values
+        tgt_sample_values = {}
+        for col in tgt_columns:
+            # Drop NA and get unique values, then take up to 2
+            values = df_target[col].dropna().unique()[:2]
+            # Convert numpy types to native Python types for JSON serialization
+            tgt_sample_values[col] = [str(v) if not isinstance(v, (str, int, float, bool)) else v for v in values]
 
         sample_data_str = f"""
-        "source_data": {json.dumps(source_sample, indent=2)},
-        "target_data": {json.dumps(target_sample, indent=2)}
+        "source_data": {json.dumps(src_sample_values, indent=2)},
+        "target_data": {json.dumps(tgt_sample_values, indent=2)}
         """
 
         __plainLLM = ChatOpenAI(
