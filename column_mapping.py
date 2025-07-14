@@ -16,7 +16,7 @@ logger = setup_logger(__name__)
 
 base_url = "https://api-prod.jll.com/csp/chat-service/api/v1"
 subscription_key = "e3c3d48a04e04f10be62efffd0f972ac"
-model = "GEMINI_15_PRO"
+model = "GPT_4_O"
 
 # Okta Configuration
 OKTA_TOKEN_URL="https://api-prod.jll.com/okta/token"
